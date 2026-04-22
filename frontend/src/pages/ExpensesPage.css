@@ -1,0 +1,50 @@
+.expenses-container {
+  max-width: 700px;
+  margin: 2rem auto;
+  padding: 1rem;
+}
+
+.expenses-container h1 {
+  color: #2d3748;
+  margin-bottom: 1.5rem;
+  font-size: 1.8rem;
+}
+
+.expense-card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 1.2rem 1.5rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  border-left: 5px solid #667eea;
+  transition: transform 0.2s;
+}
+
+.expense-card:hover {
+  transform: translateX(4px);
+}
+
+.expense-card h3 {
+  color: #2d3748;
+  margin: 0 0 0.5rem 0;
+  font-size: 1.1rem;
+}
+
+.expense-card p {
+  color: #4a5568;
+  margin: 0.2rem 0;
+  font-size: 0.9rem;
+}
+
+.error {
+  color: #e53e3e;
+  text-align: center;
+  font-size: 1rem;
+  margin-top: 2rem;
+}
+
+p {
+  text-align: center;
+  color: #718096;
+  margin-top: 2rem;
+}

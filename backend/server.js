@@ -5,11 +5,12 @@ import connectDB from './util/db.js';
 import Expense from './models/Expense.js';
 import Category from './models/Category.js';
 import { protect } from './middleware/authMiddleware.js';
-
-// 👇 ADD THESE
+import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from './models/User.js';
+import { validateExpense } from './middleware/validateExpense.js';
+import Budget from './models/Budget.js';
 
 dotenv.config();
 connectDB();
@@ -95,6 +96,29 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      token,
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role        // ← make sure this line exists
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 
 // =================================================
 
@@ -132,7 +156,7 @@ app.get('/api/expenses', protect, async (req, res) => {
 
 
 // Create expense
-app.post('/api/expenses', protect, async (req, res) => {
+app.post('/api/expenses', protect, validateExpense, async (req, res) => {
   try {
     const { title, amount, category, date, paymentMethod } = req.body;
 
@@ -152,6 +176,68 @@ app.post('/api/expenses', protect, async (req, res) => {
   }
 });
 
+// Get expense by ID
+app.get('/api/expenses/:id', protect, async (req, res) => {
+  try {
+    const expense = await Expense.findOne({
+      _id: req.params.id,
+      userId: req.user._id
+    });
+    if (!expense)
+      return res.status(404).json({ message: 'Expense not found' });
+    res.json(expense);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+
+// Update expense
+app.put('/api/expenses/:id', protect, async (req, res) => {
+  try {
+    const expense = await Expense.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user._id },
+      req.body,
+      { new: true, runValidators: true }
+    );
+    if (!expense)
+      return res.status(404).json({ message: 'Expense not found' });
+    res.json(expense);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+
+// Delete expense
+app.delete('/api/expenses/:id', protect, async (req, res) => {
+  try {
+    const expense = await Expense.findOneAndDelete({
+      _id: req.params.id,
+      userId: req.user._id
+    });
+    if (!expense)
+      return res.status(404).json({ message: 'Expense not found' });
+    res.json({ message: 'Expense deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// GET /api/reports/summary
+app.get('/api/reports/summary', protect, async (req, res) => {
+  try {
+    const expenses = await Expense.find({ userId: req.user._id });
+    const total = expenses.reduce((sum, e) => sum + e.amount, 0);
+    const byCategory = expenses.reduce((acc, e) => {
+      acc[e.category] = (acc[e.category] || 0) + e.amount;
+      return acc;
+    }, {});
+    res.json({ total, byCategory, count: expenses.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
 
 // Get categories
 app.get('/api/categories', protect, async (req, res) => {
@@ -162,6 +248,70 @@ app.get('/api/categories', protect, async (req, res) => {
 
     res.json(categories);
 
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// GET /api/budgets
+app.get('/api/budgets', protect, async (req, res) => {
+  try {
+    const budgets = await Budget.find({ userId: req.user._id });
+    res.json(budgets);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// POST /api/budgets
+app.post('/api/budgets', protect, async (req, res) => {
+  try {
+    const { category, limit, month } = req.body;
+    // Update if exists for same category+month, else create
+    const budget = await Budget.findOneAndUpdate(
+      { userId: req.user._id, category, month: new Date(month) },
+      { limit },
+      { upsert: true, new: true }
+    );
+    res.status(201).json(budget);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// GET /api/reports/by-category
+app.get('/api/reports/by-category', protect, async (req, res) => {
+  try {
+    const expenses = await Expense.find({ userId: req.user._id });
+    const byCategory = expenses.reduce((acc, e) => {
+      acc[e.category] = (acc[e.category] || 0) + e.amount;
+      return acc;
+    }, {});
+    res.json(byCategory);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// GET /api/admin/users  (admin only)
+app.get('/api/admin/users', protect, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin')
+      return res.status(403).json({ message: 'Access denied' });
+    const users = await User.find().select('-password');
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// GET /api/admin/expenses  (admin only)
+app.get('/api/admin/expenses', protect, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin')
+      return res.status(403).json({ message: 'Access denied' });
+    const expenses = await Expense.find().populate('userId', 'name email');
+    res.json(expenses);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
